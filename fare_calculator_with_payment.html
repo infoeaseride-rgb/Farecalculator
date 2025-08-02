@@ -1,0 +1,156 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Fare Calculator with Payment</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            max-width: 600px;
+            margin: auto;
+        }
+        label, input, select, button {
+            display: block;
+            width: 100%;
+            margin-bottom: 15px;
+        }
+        .fare-output {
+            font-size: 18px;
+            font-weight: bold;
+        }
+    </style>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
+<body>
+    <h2>RideEase Fare Calculator</h2>
+
+    <label for="pickup">Pickup Location</label>
+    <input type="text" id="pickup" placeholder="Enter pickup location">
+
+    <label for="drop">Drop Location</label>
+    <input type="text" id="drop" placeholder="Enter drop location">
+
+    <label for="vehicle">Select Vehicle</label>
+    <select id="vehicle">
+        <option value="mini">Mini</option>
+        <option value="sedan">Sedan</option>
+        <option value="van">Van</option>
+        <option value="suv">SUV</option>
+        <option value="tuktuk">Tuk Tuk</option>
+    </select>
+
+    <label for="type">Service Type</label>
+    <select id="type">
+        <option value="distance">Distance-based</option>
+        <option value="hourly">Hourly</option>
+    </select>
+
+    <label for="hours" style="display:none;" id="hours-label">Hours</label>
+    <input type="number" id="hours" min="1" max="24" placeholder="Enter number of hours" style="display:none;">
+
+    <button onclick="calculateFare()">Calculate Fare</button>
+
+    <div class="fare-output" id="fareOutput"></div>
+
+    <h3>Choose Payment Option</h3>
+    <button onclick="payOnline()">Pay Online (Card/UPI)</button>
+    <a href="https://sites.google.com/view/rideease-cash-payment" target="_blank">
+        <button>Pay by Cash</button>
+    </a>
+
+    <script>
+        const rates = {
+            base: 5,
+            mini: 25,
+            sedan: 30,
+            van: 40,
+            suv: 50,
+            tuktuk: 20,
+            hourly: {
+                mini: 200,
+                sedan: 250,
+                van: 300,
+                suv: 400,
+                tuktuk: 150
+            }
+        };
+
+        let latestFare = 0;
+
+        document.getElementById("type").addEventListener("change", function() {
+            const isHourly = this.value === "hourly";
+            document.getElementById("hours").style.display = isHourly ? "block" : "none";
+            document.getElementById("hours-label").style.display = isHourly ? "block" : "none";
+        });
+
+        async function getDistance(pickup, drop) {
+            const url = `https://router.project-osrm.org/route/v1/driving/${pickup};${drop}?overview=false`;
+            const response = await fetch(url);
+            const data = await response.json();
+            const dist = data.routes[0].distance / 1000; // km
+            return dist;
+        }
+
+        async function calculateFare() {
+            const vehicle = document.getElementById("vehicle").value;
+            const type = document.getElementById("type").value;
+            const hours = parseFloat(document.getElementById("hours").value) || 1;
+
+            const pickupAddress = document.getElementById("pickup").value;
+            const dropAddress = document.getElementById("drop").value;
+
+            try {
+                const pickupGeo = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${pickupAddress}`);
+                const pickupData = await pickupGeo.json();
+                const dropGeo = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${dropAddress}`);
+                const dropData = await dropGeo.json();
+
+                const pickupCoord = `${pickupData[0].lon},${pickupData[0].lat}`;
+                const dropCoord = `${dropData[0].lon},${dropData[0].lat}`;
+
+                if (type === "hourly") {
+                    latestFare = rates.hourly[vehicle] * hours;
+                } else {
+                    const distance = await getDistance(pickupCoord, dropCoord);
+                    if (distance <= rates.base) {
+                        latestFare = rates[vehicle];
+                    } else {
+                        latestFare = rates[vehicle] + (distance - rates.base) * rates[vehicle];
+                    }
+                }
+                document.getElementById("fareOutput").innerText = `Estimated Fare: LKR ${Math.round(latestFare)}`;
+            } catch (err) {
+                alert("Error calculating distance. Please check location names.");
+            }
+        }
+
+        function payOnline() {
+            const options = {
+                key: "YOUR_RAZORPAY_KEY_ID",
+                amount: Math.round(latestFare * 100),
+                currency: "LKR",
+                name: "RideEase Sri Lanka",
+                description: "Cab Fare Payment",
+                handler: function (response) {
+                    alert("Payment Successful: " + response.razorpay_payment_id);
+                },
+                prefill: {
+                    name: "",
+                    email: "",
+                    contact: ""
+                },
+                theme: {
+                    color: "#3399cc"
+                }
+            };
+            const rzp = new Razorpay(options);
+            rzp.open();
+        }
+    </script>
+</body>
+</html>
